@@ -5,12 +5,9 @@ import ChatBox from './components/chat-box/ChatBox.vue';
 </script>
 
 <template>
-  <main style="
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 50px;">
+  <main>
     <ChatBox />
-    <ChatBox />
+    <!-- <ChatBox /> -->
   </main>
 </template>
 

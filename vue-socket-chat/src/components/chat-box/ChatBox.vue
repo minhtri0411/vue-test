@@ -1,88 +1,168 @@
 <template>
-<span class="p-input-icon-left" v-if="!joined">
-    <i class="pi pi-arrow-circle-right" />
-    <InputText type="text" placeholder="Enter your name" v-model="userName"/>
-    <InputText type="text" placeholder="Enter room id" v-model="roomId"/>
-    <Button label="send" icon="pi pi-send" iconPos="right" @click="join()" />
-</span>
+    <template v-if="!joined">
+        <Dropdown v-model="selectedVessel" :options="vessels" optionLabel="name" optionValue="code" placeholder="Select a Vessel" />
+        <Dropdown v-model="selectedPort" :options="ports" optionLabel="name" optionValue="code" placeholder="Select a port" />
 
-<div class="chat-room" v-if="joined">
-    Hello {{userName}}
-    <div class="room-header">
-        <div class="room-name">Liner Planner</div>
-        <Avatar label="P" />
-    </div>
+        <span class="p-input-icon-left" v-if="!joined">
+            <i class="pi pi-arrow-circle-right" />
+            <InputText type="text" placeholder="Enter your userId" v-model="userAuthor"/>
+            <Button label="send" icon="pi pi-send" iconPos="right" @click="login()" />
+        </span>
+    </template>
 
-    <div class="messages-list">
-        <template v-for="item in messagesLog" :key="item.messageId">
-            <div class="message-box" :class="item.userId === userName ? ' message-box--user' : 'message-box--guest'">
-                <div class="message-box__info">
-                    <Avatar label="U" />
-                    <span class="message-box__short-time">time</span>
-                </div>
-                <div class="message-box__text">
-                    {{item.messageText}}
-                </div>
-            </div>
+    <template v-if="joined">
+        <label>Hello {{currentUser?.userName}}/ {{currentUser?.roleName}}</label>
+        <template v-for="user in usersContact" :key="user.userId">
+            <RoomChat v-if="currentUser?.userId !== user.userId"
+                :currentUser="currentUser"
+                :userContact="user"
+                @sendMessage="sendMessage">
+            </RoomChat>
         </template>
-    </div>
+    </template>
 
-    <div class="room-footer">
-        <Textarea class="room-textarea" v-model="typingMessage" :autoResize="true" placeholder="Type message" 
-            :style="{ height: '40px'}"/>
-        <Button icon="pi pi-send" iconPos="right" @click="sendMessage()"/>
-    </div>
-</div>
+    <strong>User connected:</strong>
+    <ul>
+        <li v-for="user in usersConnected" :key="user.userId">{{user.userName}}</li>
+    </ul>
 </template>
 
 <script setup lang="ts">
-    import Avatar from 'primevue/avatar';
-    import Textarea from 'primevue/textarea';
-    import Button from 'primevue/button';
-    import InputText from 'primevue/inputtext';
-
     import { defineProps, reactive, ref } from 'vue';
     import io from "socket.io-client";
-
-    interface IMessage {
-        messageId: string,
-        isCurrentUser: boolean,
-        userId: string;
-        messageText: string,
-        time: string
-    }
+    import type { IMessage, IUser } from "../../models/chat.model";
+    import RoomChat from './RoomChat.vue';
  
     const messagesLog = ref<IMessage[]>([])
-    const userName = ref()
-    const roomId = ref();
-    let socketInstance: any
+    const userAuthor = ref<string>();
+    const currentUser = ref<IUser>();
+    const socket = io("http://localhost:3300/", { autoConnect: false });
     const joined = ref(false)
     const typingMessage = ref('');
 
-    const join = () => {
-      socketInstance = io("http://localhost:3300/", { query: { roomId: roomId.value } });
-      joined.value = true;
+    const selectedVessel = ref();
+    const vessels = ref([
+            {name: 'Vessel 01', code: 'VESSEL01'},
+            {name: 'Vessel 02', code: 'VESSEL02'},
+            {name: 'Vessel 03', code: 'VESSEL03'},
+            {name: 'Vessel 04', code: 'VESSEL04'},
+            {name: 'Vessel 05', code: 'VESSEL05'}
+        ]);
 
-      socketInstance.on( "message:received", (data: any) => {
-          messagesLog.value = messagesLog.value.concat(data);
+    const selectedPort = ref();
+    const ports = ref([
+            {name: 'Port 01', code: 'PORT01'},
+            {name: 'Port 02', code: 'PORT02'},
+            {name: 'Port 03', code: 'PORT03'}
+        ]);
+
+    const usersContact = ref<IUser[]>([
+        {
+            userId: '111',
+            userName: "Kenny Jung",
+            roleName: 'Liner Planner'
+        },
+        {
+            userId: '222',
+            userName: "Jason Lim",
+            roleName: 'Terminal Planner'
+        },
+        {
+            userId: '333',
+            userName: "Tom Phillip",
+            roleName: 'Ship\'s Captain'
+        },
+        {
+            userId: '444',
+            userName: "IU",
+            roleName: 'Port Agent'
         }
-      )
+    ]);
+    const usersConnected = ref<[IUser]>();
+
+    const login = () =>{
+        // a simple login flow
+        const listIdContact: any = ['111', '222', '333', '444'];
+        if(listIdContact.includes(userAuthor.value)) {
+            join();
+        } else {
+            alert('User invalid!')
+        }
     }
 
-    const addMessage = () => {
-      const message = {
-        messageId: new Date().getTime(),
-        messageText: typingMessage.value,
-        time: new Date().getTime(),
-        userId: userName
-      } as any;
-      messagesLog.value = messagesLog.value.concat(message);
-      socketInstance.emit('message', message);
+    const join = () => {
+        socket.auth = { userId: userAuthor.value }
+        socket.connect();
+        joined.value = true;
+
+        socket.on("users:connected", (users: [IUser]) => {
+            users.forEach((user) => {
+                user.self = user.userId === socket.id;
+                currentUser.value = user;
+            });
+
+            // put the current user first, and then sort by username
+            usersConnected.value = users.sort((a, b) => {
+                if (a.self) return -1;
+                if (b.self) return 1;
+                if (a.userName < b.userName) return -1;
+                return a.userName > b.userName ? 1 : 0;
+            });
+        });
+
+        socket.on("message:private", ({ content, from }) => {
+            debugger;
+            for (let i = 0; i < usersContact.value.length; i++) {
+                const user = usersContact.value[i];
+                if (user.socketId === from) {
+                    const temp: any = { content, fromSelf: false };
+                    user.messagesLog
+                        ? user.messagesLog.concat(temp)
+                        : user.messagesLog = [temp];
+                    
+                    usersContact.value[i] = user;
+                    break;
+                }
+            }
+        });
+
+        socket.on("connect_error", (err) => {
+            if (err.message === "invalid username") {
+                joined.value = false;
+                console.error('invalid username')
+            }
+        });
     }
 
-    const sendMessage = () => {
-      addMessage();
-      typingMessage.value = "";
+    const addMessage = (selectedUser: IUser, typingMessage: string) => {
+        const message: any = {
+            messageText: typingMessage,
+            time: new Date().getTime(),
+            fromUserId: currentUser.value
+        };
+
+        for (let i = 0; i < usersContact.value.length; i++) {
+            const user = usersContact.value[i];
+            if (user.socketId === selectedUser.socketId) {
+                const temp = { content: message, fromSelf: true };
+                user.messagesLog
+                    ? user.messagesLog.push(temp)
+                    : user.messagesLog = [temp];
+                
+                usersContact.value[i] = user;
+                break;
+            }
+        }
+
+        debugger;
+        socket.emit("message:private", {
+            content: message,
+            to: selectedUser.userId,
+        });        
+    }
+
+    const sendMessage = (selectedUser: IUser, typingMessage: string) => {
+      addMessage(selectedUser, typingMessage);
     }
 </script>
 
