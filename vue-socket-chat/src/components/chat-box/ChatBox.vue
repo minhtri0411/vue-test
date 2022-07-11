@@ -1,16 +1,16 @@
 <template>
     <template v-if="!joined">
-        <Dropdown v-model="selectedVessel" :options="vessels" optionLabel="name" optionValue="code" placeholder="Select a Vessel" />
-        <Dropdown v-model="selectedPort" :options="ports" optionLabel="name" optionValue="code" placeholder="Select a port" />
-
-        <span class="p-input-icon-left" v-if="!joined">
+        <span class="p-input-icon-left">
             <i class="pi pi-arrow-circle-right" />
             <InputText type="text" placeholder="Enter your userId" v-model="userAuthor"/>
             <Button label="send" icon="pi pi-send" iconPos="right" @click="login()" />
         </span>
     </template>
 
-    <template v-if="joined">
+    <Dropdown v-if="joined" v-model="selectedChannel" :options="channels" optionLabel="name" optionValue="code" placeholder="Select a Channel" />
+    <br/>
+    
+    <template v-if="joined && selectedChannel">
         <label>Hello {{currentUser?.userName}}/ {{currentUser?.roleName}}</label>
         <template v-for="user in usersContact" :key="user.userId">
             <RoomChat v-if="currentUser?.userId !== user.userId"
@@ -21,9 +21,10 @@
         </template>
     </template>
 
+    <br/>
     <strong>User connected:</strong>
     <ul>
-        <li v-for="user in usersConnected" :key="user.userId">{{user.userName}}</li>
+        <li v-for="user in usersContact" :key="user.userId">{{user.userName}} - {{user.isActive ? 'Online' : 'Offline'}}</li>
     </ul>
 </template>
 
@@ -40,20 +41,13 @@
     const joined = ref(false)
     const typingMessage = ref('');
 
-    const selectedVessel = ref();
-    const vessels = ref([
-            {name: 'Vessel 01', code: 'VESSEL01'},
-            {name: 'Vessel 02', code: 'VESSEL02'},
-            {name: 'Vessel 03', code: 'VESSEL03'},
-            {name: 'Vessel 04', code: 'VESSEL04'},
-            {name: 'Vessel 05', code: 'VESSEL05'}
-        ]);
-
-    const selectedPort = ref();
-    const ports = ref([
-            {name: 'Port 01', code: 'PORT01'},
-            {name: 'Port 02', code: 'PORT02'},
-            {name: 'Port 03', code: 'PORT03'}
+    const selectedChannel = ref();
+    const channels = ref([
+            {name: 'Channel 01', code: 'CHANNEL01'},
+            {name: 'Channel 02', code: 'CHANNEL02'},
+            {name: 'Channel 03', code: 'CHANNEL03'},
+            {name: 'Channel 04', code: 'CHANNEL04'},
+            {name: 'Channel 05', code: 'CHANNEL05'}
         ]);
 
     const usersContact = ref<IUser[]>([
@@ -78,7 +72,6 @@
             roleName: 'Port Agent'
         }
     ]);
-    const usersConnected = ref<[IUser]>();
 
     const login = () =>{
         // a simple login flow
@@ -95,23 +88,30 @@
         socket.connect();
         joined.value = true;
 
-        socket.on("users:connected", (users: [IUser]) => {
-            users.forEach((user) => {
-                user.self = user.userId === socket.id;
-                currentUser.value = user;
+        socket.on("users:connected", ({usersConnected}) => {
+            usersContact.value.forEach(item => {
+                const temp = usersConnected.find(i => i.userId == item.userId);
+                temp ? item.isActive = true : item.isActive = false;
+
+                item.self = false;
+                if (temp.socketId == socket.id) {    
+                    item.self = true;
+                }
             });
 
+            console.log(usersConnected);
+            console.log(socket.id);
+
             // put the current user first, and then sort by username
-            usersConnected.value = users.sort((a, b) => {
-                if (a.self) return -1;
-                if (b.self) return 1;
-                if (a.userName < b.userName) return -1;
-                return a.userName > b.userName ? 1 : 0;
-            });
+            // usersConnected.value = users.sort((a, b) => {
+            //     if (a.self) return -1;
+            //     if (b.self) return 1;
+            //     if (a.userName < b.userName) return -1;
+            //     return a.userName > b.userName ? 1 : 0;
+            // });
         });
 
         socket.on("message:private", ({ content, from }) => {
-            debugger;
             for (let i = 0; i < usersContact.value.length; i++) {
                 const user = usersContact.value[i];
                 if (user.socketId === from) {
@@ -129,6 +129,7 @@
         socket.on("connect_error", (err) => {
             if (err.message === "invalid username") {
                 joined.value = false;
+                selectedChannel.value = null;
                 console.error('invalid username')
             }
         });
@@ -157,7 +158,7 @@
         debugger;
         socket.emit("message:private", {
             content: message,
-            to: selectedUser.userId,
+            to: selectedUser.socketId,
         });        
     }
 
