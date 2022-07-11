@@ -3,6 +3,13 @@ const http = require('http');
 const { Server } = require('socket.io');
 const _ = require('lodash');
 const app = express();
+
+const crypto = require("crypto");
+const randomId = () => crypto.randomBytes(8).toString("hex");
+
+const { InMemorySessionStore } = require("./sessionStore");
+const sessionStore = new InMemorySessionStore();
+
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
@@ -34,62 +41,88 @@ const users = ([
         roleName: 'Port Agent'
     }
 ]);
-// io.on('connection', (socket) => {
-//     console.log(`user ${socket.id} is connected.`)
-
-//     if (room) {
-//         socket.join(room);
-//         socket.on('message', data => {
-//             socket.to(room).emit('message:received', data);
-//             // socket.broadcast.emit('message:received', data)
-//         })
-//     } else {
-//         socket.on('message', data => {
-//             socket.broadcast.emit('message:received', data)
-//         })
-//     }
-    
-//     socket.on('disconnect', () => {
-//         console.log(`user ${socket.id} left.`)
-//     })
-// })
 
 io.use((socket, next) => {
-    const userId = socket.handshake.auth.userId;
-    if (!userId) {
+    const sessionId = socket.handshake.auth.sessionId;
+    if (sessionId) {
+        // find existing session
+        const session = sessionStore.findSession(sessionId);
+        if (session) {
+            socket.sessionId = sessionId;
+            socket.userId = session.userId;
+            socket.userName = session.userName;
+          return next();
+        }
+    }
+
+    const userName = socket.handshake.auth.userName;
+    if (!userName) {
       return next(new Error("invalid user"));
     }
-    socket.userId = userId;
+
+    // create new session
+    socket.sessionId = randomId();
+    socket.userId = randomId();
+    socket.userName = userName;
     next();
 });
 
 io.on("connection", (socket) => {
-    let usersConnected = [];
-    for (let [socketId, socket] of io.of("/").sockets) {
-        const user = users.find(item => {
-            return item.userId === socket.userId;
-        })
-        usersConnected.push({socketId, ...user});
-    }
-    usersConnected = _.uniqBy(usersConnected, 'userId');
-    console.log(usersConnected);
-    socket.emit("users:connected", usersConnected);
+    sessionStore.saveSession(socket.sessionId, {
+        userId: socket.userId,
+        userName: socket.userName,
+        connected: true,
+    });
+
+    socket.emit("session", {
+        sessionId: socket.sessionId,
+        userId: socket.userId,
+    });
+
+    // join the "userId" room
+    socket.join(socket.userId);
+
+    // fetch existing users
+    const users = [];
+    sessionStore.findAllSessions().forEach((session) => {
+        users.push({
+            userId: session.userId,
+            userName: session.userName,
+            connected: session.connected,
+        });
+    });
+    socket.emit("users", users);
+
+    // notify existing users
+    socket.broadcast.emit("user connected", {
+        userId: socket.id,
+        userName: socket.userId,
+        connected: true,
+    });
 
     socket.on("message:private", ({ content, to }) => {
-        socket.to(to).emit("message:private", {
-          content,
-          from: socket.id,
+        socket.to(to).to(socket.userId).emit("message:private", {
+            content,
+            from: socket.userId,
+            to,
         });
     });
 
-    socket.on('disconnect', () => {
-        _.remove(usersConnected, {
-            socketId: socket.id
+    // notify users upon disconnection
+    socket.on("disconnect", async () => {
+        const matchingSockets = await io.in(socket.userId).allSockets();
+        const isDisconnected = matchingSockets.size === 0;
+        if (isDisconnected) {
+        // notify other users
+        socket.broadcast.emit("user disconnected", socket.userId);
+        // update the connection status of the session
+        sessionStore.saveSession(socket.sessionId, {
+            userId: socket.userId,
+            userName: socket.userName,
+            connected: false,
         });
-
-        socket.emit("users:connected", usersConnected);
-        console.log(`user ${socket.id} left.`)
-    })
+        }
+    });
 });
 
 server.listen(3300, () => {

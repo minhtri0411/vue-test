@@ -2,6 +2,7 @@
 import { usePrimeVue } from "primevue/config";
 import ChatBox from './components/chat-box/ChatBox.vue';
 
+
 </script>
 
 <template>

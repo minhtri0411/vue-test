@@ -11,8 +11,17 @@
     <br/>
     
     <template v-if="joined && selectedChannel">
-        <label>Hello {{currentUser?.userName}}/ {{currentUser?.roleName}}</label>
+        <!-- <label>Hello {{currentUser?.userName}}/ {{currentUser?.roleName}}</label>
         <template v-for="user in usersContact" :key="user.userId">
+            <RoomChat v-if="currentUser?.userId !== user.userId"
+                :currentUser="currentUser"
+                :userContact="user"
+                @sendMessage="sendMessage">
+            </RoomChat>
+        </template> -->
+
+        <label>Hello {{currentUser?.userName}}/ {{currentUser?.roleName}}</label>
+        <template v-for="user in usersConnected" :key="user.userId">
             <RoomChat v-if="currentUser?.userId !== user.userId"
                 :currentUser="currentUser"
                 :userContact="user"
@@ -24,7 +33,11 @@
     <br/>
     <strong>User connected:</strong>
     <ul>
-        <li v-for="user in usersContact" :key="user.userId">{{user.userName}} - {{user.isActive ? 'Online' : 'Offline'}}</li>
+        <li v-for="user in usersConnected" :key="user.userId">
+            <span :style="{color: user.connected ? 'green' : 'red'}">
+                {{user.userName}} - {{user.connected ? 'Online' : 'Offline'}}
+            </span>
+        </li>
     </ul>
 </template>
 
@@ -33,13 +46,13 @@
     import io from "socket.io-client";
     import type { IMessage, IUser } from "../../models/chat.model";
     import RoomChat from './RoomChat.vue';
+    import { onUnmounted } from 'vue';
+
  
-    const messagesLog = ref<IMessage[]>([])
     const userAuthor = ref<string>();
     const currentUser = ref<IUser>();
     const socket = io("http://localhost:3300/", { autoConnect: false });
     const joined = ref(false)
-    const typingMessage = ref('');
 
     const selectedChannel = ref();
     const channels = ref([
@@ -72,6 +85,126 @@
             roleName: 'Port Agent'
         }
     ]);
+    let usersConnected: any[] = [];
+
+    // start setup socket
+    const initReactiveProperties = (user) => {
+        user.messages = [];
+        user.hasNewMessages = false;
+    };
+    
+    const sessionId = localStorage.getItem("sessionId");
+    if (sessionId) {
+        joined.value = true;
+        socket.auth = { sessionId };
+        socket.connect();
+    }
+    
+    socket.on("session", ({ sessionId, userId }) => {
+        // attach the session ID to the next reconnection attempts
+        socket.auth = { sessionId };
+        // store it in the localStorage
+        localStorage.setItem("sessionId", sessionId);
+        // save the ID of the user
+        socket.userId = userId;
+    });
+
+    socket.on("connect_error", (err) => {
+        if (err.message === "invalid username") {
+            joined.value = false;
+            selectedChannel.value = null;
+            console.error('invalid username')
+        }
+    });
+
+    // *****************************
+    socket.on("connect", () => {
+        usersConnected.forEach((user) => {
+            if (user.self) {
+                user.activated = true;
+            }
+        });
+    });
+
+    socket.on("disconnect", () => {
+        usersConnected.forEach((user) => {
+            if (user.self) {
+                user.activated = false;
+            }
+        });
+    });
+
+    socket.on("users", (users) => {
+        users.forEach((user) => {
+            for (let i = 0; i < usersConnected.length; i++) {
+                const existingUser = usersConnected[i];
+                if (existingUser.userId === user.userId) {
+                    existingUser.connected = user.connected;
+                    return;
+                }
+            }
+            user.self = user.userId === socket.userId;
+            initReactiveProperties(user);
+            usersConnected.push(user);
+        });
+        console.log('users', usersConnected);
+    });
+
+    socket.on("user connected", (user) => {
+        for (let i = 0; i < usersConnected.length; i++) {
+            const existingUser = usersConnected[i];
+            if (existingUser.userId === user.userId) {
+                existingUser.connected = true;
+                return;
+            }
+        }
+        initReactiveProperties(user);
+        usersConnected.push(user);
+        console.log('users connected: ', usersConnected);
+    });
+    
+    socket.on("message:private", ({ content, from, to }) => {
+        // for (let i = 0; i < usersContact.value.length; i++) {
+        //     const user = usersContact.value[i];
+        //     if (user.socketId === from) {
+        //         const temp: any = { content, fromSelf: false };
+        //         user.messagesLog
+        //             ? user.messagesLog.concat(temp)
+        //             : user.messagesLog = [temp];
+                
+        //         usersContact.value[i] = user;
+        //         break;
+        //     }
+        // }
+
+        for (let i = 0; i < usersConnected.length; i++) {
+            const user = usersConnected[i];
+            const fromSelf = socket.userId === from;
+            if (user.userId === (fromSelf ? to : from)) {
+            user.messages.push({
+                content,
+                fromSelf,
+            });
+            // if (user !== selectedUser) {
+            //     user.hasNewMessages = true;
+            // }
+            break;
+            }
+        }
+
+    });
+    // end setup socket
+
+    onUnmounted(() => {
+        socket.off("connect_error");
+
+        socket.off("connect");
+        socket.off("disconnect");
+        socket.off("users");
+        socket.off("user connected");
+        socket.off("user disconnected");
+        socket.off("private message");
+    })
 
     const login = () =>{
         // a simple login flow
@@ -82,57 +215,11 @@
             alert('User invalid!')
         }
     }
-
+    
     const join = () => {
-        socket.auth = { userId: userAuthor.value }
+        socket.auth = { userName: userAuthor.value }
         socket.connect();
         joined.value = true;
-
-        socket.on("users:connected", ({usersConnected}) => {
-            usersContact.value.forEach(item => {
-                const temp = usersConnected.find(i => i.userId == item.userId);
-                temp ? item.isActive = true : item.isActive = false;
-
-                item.self = false;
-                if (temp.socketId == socket.id) {    
-                    item.self = true;
-                }
-            });
-
-            console.log(usersConnected);
-            console.log(socket.id);
-
-            // put the current user first, and then sort by username
-            // usersConnected.value = users.sort((a, b) => {
-            //     if (a.self) return -1;
-            //     if (b.self) return 1;
-            //     if (a.userName < b.userName) return -1;
-            //     return a.userName > b.userName ? 1 : 0;
-            // });
-        });
-
-        socket.on("message:private", ({ content, from }) => {
-            for (let i = 0; i < usersContact.value.length; i++) {
-                const user = usersContact.value[i];
-                if (user.socketId === from) {
-                    const temp: any = { content, fromSelf: false };
-                    user.messagesLog
-                        ? user.messagesLog.concat(temp)
-                        : user.messagesLog = [temp];
-                    
-                    usersContact.value[i] = user;
-                    break;
-                }
-            }
-        });
-
-        socket.on("connect_error", (err) => {
-            if (err.message === "invalid username") {
-                joined.value = false;
-                selectedChannel.value = null;
-                console.error('invalid username')
-            }
-        });
     }
 
     const addMessage = (selectedUser: IUser, typingMessage: string) => {
@@ -142,29 +229,29 @@
             fromUserId: currentUser.value
         };
 
-        for (let i = 0; i < usersContact.value.length; i++) {
-            const user = usersContact.value[i];
-            if (user.socketId === selectedUser.socketId) {
-                const temp = { content: message, fromSelf: true };
-                user.messagesLog
-                    ? user.messagesLog.push(temp)
-                    : user.messagesLog = [temp];
+        // for (let i = 0; i < usersContact.value.length; i++) {
+        //     const user = usersContact.value[i];
+        //     if (user.socketId === selectedUser.socketId) {
+        //         const temp = { content: message, fromSelf: true };
+        //         user.messagesLog
+        //             ? user.messagesLog.push(temp)
+        //             : user.messagesLog = [temp];
                 
-                usersContact.value[i] = user;
-                break;
-            }
-        }
+        //         usersContact.value[i] = user;
+        //         break;
+        //     }
+        // }
 
-        debugger;
         socket.emit("message:private", {
             content: message,
-            to: selectedUser.socketId,
-        });        
+            to: selectedUser.userId,
+        });
     }
 
     const sendMessage = (selectedUser: IUser, typingMessage: string) => {
       addMessage(selectedUser, typingMessage);
     }
+
 </script>
 
 <style lang="scss">
