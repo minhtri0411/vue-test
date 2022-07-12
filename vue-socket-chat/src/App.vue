@@ -16,7 +16,6 @@ import ChatBox from './components/chat-box/ChatBox.vue';
 @import './assets/base.css';
 
 #app {
-  max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
 
@@ -49,12 +48,6 @@ a,
   body {
     display: flex;
     place-items: center;
-  }
-
-  #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
   }
 
   header {

@@ -13,34 +13,10 @@ const sessionStore = new InMemorySessionStore();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "http://localhost:3000",
+        origin: "http://172.16.1.45:3000",
         methods: ['GET', "POST"]
     }
 });
-
-// Mockup users
-const users = ([
-    {
-        userId: '111',
-        userName: "Kenny Jung",
-        roleName: 'Liner Planner'
-    },
-    {
-        userId: '222',
-        userName: "Jason Lim",
-        roleName: 'Terminal Planner'
-    },
-    {
-        userId: '333',
-        userName: "Tom Phillip",
-        roleName: 'Ship\'s Captain'
-    },
-    {
-        userId: '444',
-        userName: "IU",
-        roleName: 'Port Agent'
-    }
-]);
 
 io.use((socket, next) => {
     const sessionId = socket.handshake.auth.sessionId;
@@ -51,7 +27,7 @@ io.use((socket, next) => {
             socket.sessionId = sessionId;
             socket.userId = session.userId;
             socket.userName = session.userName;
-          return next();
+            return next();
         }
     }
 
@@ -77,6 +53,7 @@ io.on("connection", (socket) => {
     socket.emit("session", {
         sessionId: socket.sessionId,
         userId: socket.userId,
+        userName: socket.userName
     });
 
     // join the "userId" room
@@ -84,6 +61,7 @@ io.on("connection", (socket) => {
 
     // fetch existing users
     const users = [];
+    console.table(sessionStore.findAllSessions())
     sessionStore.findAllSessions().forEach((session) => {
         users.push({
             userId: session.userId,
@@ -95,8 +73,8 @@ io.on("connection", (socket) => {
 
     // notify existing users
     socket.broadcast.emit("user connected", {
-        userId: socket.id,
-        userName: socket.userId,
+        userId: socket.userId,
+        userName: socket.userName,
         connected: true,
     });
 

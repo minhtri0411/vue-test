@@ -2,56 +2,61 @@
     <template v-if="!joined">
         <span class="p-input-icon-left">
             <i class="pi pi-arrow-circle-right" />
-            <InputText type="text" placeholder="Enter your userId" v-model="userAuthor"/>
-            <Button label="send" icon="pi pi-send" iconPos="right" @click="login()" />
+            <InputText type="text" placeholder="Enter your userId" v-model="userAuthor" @keyup.enter="login()"/>
+            <Button label="Login" icon="pi pi-send" iconPos="right" @click="login()" />
         </span>
     </template>
 
-    <Dropdown v-if="joined" v-model="selectedChannel" :options="channels" optionLabel="name" optionValue="code" placeholder="Select a Channel" />
     <br/>
     
-    <template v-if="joined && selectedChannel">
-        <!-- <label>Hello {{currentUser?.userName}}/ {{currentUser?.roleName}}</label>
-        <template v-for="user in usersContact" :key="user.userId">
-            <RoomChat v-if="currentUser?.userId !== user.userId"
-                :currentUser="currentUser"
-                :userContact="user"
-                @sendMessage="sendMessage">
-            </RoomChat>
-        </template> -->
+    <template v-if="joined">
+        <div class="user__profile">
+            <Avatar class="user__avatar" shape="circle" size="large" :label="currentUser?.userName[0]" />
+            <div class="user__title">Hello <span>{{currentUser?.userName}}</span></div>
+            <!-- <span class="user__status" :class="{'user__status--active': currentUser?.connected}"></span> -->
+        </div>
+        
+        <div class="chat-room__wrap">
+            <template v-for="user in usersConnected" :key="user.userId">
+                <RoomChat v-if="currentUser?.userId !== user.userId"
+                    :currentUser="currentUser"
+                    :userContact="user"
+                    @sendMessage="sendMessage">
+                </RoomChat>
+            </template>
+        </div>
 
-        <label>Hello {{currentUser?.userName}}/ {{currentUser?.roleName}}</label>
-        <template v-for="user in usersConnected" :key="user.userId">
-            <RoomChat v-if="currentUser?.userId !== user.userId"
-                :currentUser="currentUser"
-                :userContact="user"
-                @sendMessage="sendMessage">
-            </RoomChat>
+
+        <br/>
+        <div class="waiting" v-if="!usersConnected || !usersConnected?.length || usersConnected?.length < 2">
+            Nobody here
+        </div>
+        <template v-if="usersConnected && usersConnected.length">
+            <strong>User connected:</strong>
+            <ul>
+                <li v-for="user in usersConnected" :key="user.userId">
+                    <span :style="{color: user.connected ? 'green' : 'red'}">
+                        {{user.userName}} - {{user.connected ? 'Online' : 'Offline'}}
+                        {{socket?.userId === user.userId ? '- It\'s you' : ''}}
+                    </span>
+                </li>
+            </ul>
         </template>
     </template>
 
-    <br/>
-    <strong>User connected:</strong>
-    <ul>
-        <li v-for="user in usersConnected" :key="user.userId">
-            <span :style="{color: user.connected ? 'green' : 'red'}">
-                {{user.userName}} - {{user.connected ? 'Online' : 'Offline'}}
-            </span>
-        </li>
-    </ul>
+    
+    
 </template>
 
 <script setup lang="ts">
-    import { defineProps, reactive, ref } from 'vue';
+    import { ref, onUnmounted, nextTick } from 'vue';
     import io from "socket.io-client";
     import type { IMessage, IUser } from "../../models/chat.model";
     import RoomChat from './RoomChat.vue';
-    import { onUnmounted } from 'vue';
 
- 
     const userAuthor = ref<string>();
     const currentUser = ref<IUser>();
-    const socket = io("http://localhost:3300/", { autoConnect: false });
+    const socket = io("http://172.16.1.45:3300/", { autoConnect: false });
     const joined = ref(false)
 
     const selectedChannel = ref();
@@ -85,7 +90,7 @@
             roleName: 'Port Agent'
         }
     ]);
-    let usersConnected: any[] = [];
+    const usersConnected = ref<any[]>([]);
 
     // start setup socket
     const initReactiveProperties = (user) => {
@@ -93,33 +98,42 @@
         user.hasNewMessages = false;
     };
     
-    const sessionId = localStorage.getItem("sessionId");
-    if (sessionId) {
+    const sessionChat = localStorage.getItem("sessionChat");
+    if (sessionChat) {
+        const sessionTemp = JSON.parse(sessionChat);
         joined.value = true;
-        socket.auth = { sessionId };
+        socket.auth = {
+            sessionId: sessionTemp.sessionId
+        };
         socket.connect();
     }
     
-    socket.on("session", ({ sessionId, userId }) => {
+    socket.on("session", ({ sessionId, userId, userName }) => {
         // attach the session ID to the next reconnection attempts
         socket.auth = { sessionId };
         // store it in the localStorage
-        localStorage.setItem("sessionId", sessionId);
+        localStorage.setItem("sessionChat", JSON.stringify({sessionId, userName}));
         // save the ID of the user
         socket.userId = userId;
+        currentUser.value = {
+            userId: userId,
+            userName: userName,
+            roleName: 'N/A',
+        }
     });
 
     socket.on("connect_error", (err) => {
-        if (err.message === "invalid username") {
+        debugger;
+        if (err.message === "invalid user") {
             joined.value = false;
             selectedChannel.value = null;
-            console.error('invalid username')
+            console.error('invalid user')
         }
     });
 
     // *****************************
     socket.on("connect", () => {
-        usersConnected.forEach((user) => {
+        usersConnected.value.forEach((user) => {
             if (user.self) {
                 user.activated = true;
             }
@@ -127,7 +141,7 @@
     });
 
     socket.on("disconnect", () => {
-        usersConnected.forEach((user) => {
+        usersConnected.value.forEach((user) => {
             if (user.self) {
                 user.activated = false;
             }
@@ -135,9 +149,10 @@
     });
 
     socket.on("users", (users) => {
+        console.log('user: ', users);
         users.forEach((user) => {
-            for (let i = 0; i < usersConnected.length; i++) {
-                const existingUser = usersConnected[i];
+            for (let i = 0; i < usersConnected.value.length; i++) {
+                const existingUser = usersConnected.value[i];
                 if (existingUser.userId === user.userId) {
                     existingUser.connected = user.connected;
                     return;
@@ -145,53 +160,58 @@
             }
             user.self = user.userId === socket.userId;
             initReactiveProperties(user);
-            usersConnected.push(user);
+            usersConnected.value.push(user);
         });
-        console.log('users', usersConnected);
+
+        // put the current user first, and sort by username
+        usersConnected.value.sort((a, b) => {
+            if (a.self) return -1;
+            if (b.self) return 1;
+            if (a.userName < b.userName) return -1;
+            return a.userName > b.userName ? 1 : 0;
+        });
     });
 
     socket.on("user connected", (user) => {
-        for (let i = 0; i < usersConnected.length; i++) {
-            const existingUser = usersConnected[i];
+        for (let i = 0; i < usersConnected.value.length; i++) {
+            const existingUser = usersConnected.value[i];
             if (existingUser.userId === user.userId) {
                 existingUser.connected = true;
                 return;
             }
         }
         initReactiveProperties(user);
-        usersConnected.push(user);
-        console.log('users connected: ', usersConnected);
+        usersConnected.value.push(user);
     });
     
     socket.on("message:private", ({ content, from, to }) => {
-        // for (let i = 0; i < usersContact.value.length; i++) {
-        //     const user = usersContact.value[i];
-        //     if (user.socketId === from) {
-        //         const temp: any = { content, fromSelf: false };
-        //         user.messagesLog
-        //             ? user.messagesLog.concat(temp)
-        //             : user.messagesLog = [temp];
-                
-        //         usersContact.value[i] = user;
-        //         break;
-        //     }
-        // }
-
-        for (let i = 0; i < usersConnected.length; i++) {
-            const user = usersConnected[i];
-            const fromSelf = socket.userId === from;
+        console.log('content: ', content)
+        console.log('from: ', from)
+        console.log('to: ', to)
+        const fromSelf = socket.userId === from;
+        for (let i = 0; i < usersConnected.value.length; i++) {
+            const user = usersConnected.value[i];
             if (user.userId === (fromSelf ? to : from)) {
-            user.messages.push({
-                content,
-                fromSelf,
-            });
-            // if (user !== selectedUser) {
-            //     user.hasNewMessages = true;
-            // }
-            break;
-            }
+                user.messages.push({    
+                    content,
+                    fromSelf,
+                });
+                // if (user !== selectedUser) {
+                //     user.hasNewMessages = true;
+                // }
+                break;
+            }  
         }
+    });
 
+    socket.on("user disconnected", (id) => {
+      for (let i = 0; i < usersConnected.value.length; i++) {
+        const user = usersConnected.value[i];
+        if (user.userId === id) {
+            user.connected = false;
+          break;
+        }
+      }
     });
     // end setup socket
 
@@ -207,56 +227,70 @@
     })
 
     const login = () =>{
-        // a simple login flow
-        const listIdContact: any = ['111', '222', '333', '444'];
-        if(listIdContact.includes(userAuthor.value)) {
-            join();
-        } else {
-            alert('User invalid!')
-        }
-    }
-    
-    const join = () => {
         socket.auth = { userName: userAuthor.value }
         socket.connect();
         joined.value = true;
     }
 
-    const addMessage = (selectedUser: IUser, typingMessage: string) => {
-        const message: any = {
+    const sendMessage = (selectedUser: IUser, typingMessage: string) => {
+      const message: any = {
             messageText: typingMessage,
             time: new Date().getTime(),
-            fromUserId: currentUser.value
+            fromUser: {
+                userId: currentUser.value?.userId,
+                userName: currentUser.value?.userName
+            }
         };
 
-        // for (let i = 0; i < usersContact.value.length; i++) {
-        //     const user = usersContact.value[i];
-        //     if (user.socketId === selectedUser.socketId) {
-        //         const temp = { content: message, fromSelf: true };
-        //         user.messagesLog
-        //             ? user.messagesLog.push(temp)
-        //             : user.messagesLog = [temp];
-                
-        //         usersContact.value[i] = user;
-        //         break;
-        //     }
-        // }
+        for (let i = 0; i < usersConnected.value.length; i++) {
+            const user = usersConnected.value[i];
+            if (user.userId === selectedUser.userId) {
+                user.messages.push({
+                    content: message,
+                    fromSelf: true,
+                });
+                break;
+            }
+        }
 
         socket.emit("message:private", {
             content: message,
             to: selectedUser.userId,
         });
     }
-
-    const sendMessage = (selectedUser: IUser, typingMessage: string) => {
-      addMessage(selectedUser, typingMessage);
-    }
-
 </script>
 
 <style lang="scss">
+.user {
+    &__profile {
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: row-reverse;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    &__avatar {
+        text-transform: uppercase;
+    }
+
+    &__title span {
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+}
+
 .chat-room {
     width: 500px;
+    box-shadow: 1px 1px 5px #b5b5b5;
+    padding: 15px;
+    border-radius: 4px;
+
+    &__wrap {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 30px 20px;
+    }
 }
 
 .room-header {
@@ -272,6 +306,8 @@
     padding: 15px;
     border-radius: 4px;
     min-height: 100px;
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 .message-box {

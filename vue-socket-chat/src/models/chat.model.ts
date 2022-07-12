@@ -2,16 +2,17 @@ export interface IMessage {
   content: {
     messageText: string,
     time: Date,
-    fromUserId: string
-  }
+    fromUser: {userId: string, userName: string}
+  },
+  fromSelf?: boolean
 }
 
 export interface IUser {
   userId: string,
   userName: string,
   roleName: string,
-  isActive?: boolean,
-  messagesLog?: [IMessage],
+  connected?: boolean,
+  messages?: IMessage[],
   self?: boolean,
-  socketId?: string
+  hasNewMessages?: string
 }
