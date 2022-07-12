@@ -13,7 +13,7 @@ const sessionStore = new InMemorySessionStore();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "http://172.16.1.45:3000",
+        origin: "http://localhost:3000",
         methods: ['GET', "POST"]
     }
 });
@@ -79,6 +79,8 @@ io.on("connection", (socket) => {
     });
 
     socket.on("message:private", ({ content, to }) => {
+        console.log('to', to);
+        console.log('room', socket.userId);
         socket.to(to).to(socket.userId).emit("message:private", {
             content,
             from: socket.userId,

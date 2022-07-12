@@ -56,7 +56,7 @@
 
     const userAuthor = ref<string>();
     const currentUser = ref<IUser>();
-    const socket = io("http://172.16.1.45:3300/", { autoConnect: false });
+    const socket = io("http://localhost:3300/", { autoConnect: false });
     const joined = ref(false)
 
     const selectedChannel = ref();
