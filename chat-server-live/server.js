@@ -62,7 +62,7 @@ io.on("connection", (socket) => {
 
     // fetch existing users
     const users = [];
-    console.table(sessionStore.findAllSessions())
+    // console.table(sessionStore.findAllSessions())
     sessionStore.findAllSessions().forEach((session) => {
         users.push({
             userId: session.userId,
@@ -92,16 +92,17 @@ io.on("connection", (socket) => {
         const matchingSockets = await io.in(socket.userId).allSockets();
         const isDisconnected = matchingSockets.size === 0;
         if (isDisconnected) {
-        // notify other users
-        socket.broadcast.emit("user disconnected", socket.userId);
-        // update the connection status of the session
-        sessionStore.saveSession(socket.sessionId, {
-            userId: socket.userId,
-            userName: socket.userName,
-            connected: false,
-        });
+            // notify other users
+            socket.broadcast.emit("user disconnected", socket.userId);
+            // update the connection status of the session
+            sessionStore.saveSession(socket.sessionId, {
+                userId: socket.userId,
+                userName: socket.userName,
+                connected: false,
+            });
         }
     });
+    
 });
 
 server.listen(3300, () => {
