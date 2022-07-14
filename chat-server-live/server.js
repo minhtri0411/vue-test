@@ -13,7 +13,7 @@ const sessionStore = new InMemorySessionStore();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "http://localhost:3000",
+        origin: "http://localhost:8686",
         methods: ['GET', "POST"]
     }
 });
@@ -31,14 +31,16 @@ io.use((socket, next) => {
         }
     }
 
+    const userId = socket.handshake.auth.userId;
     const userName = socket.handshake.auth.userName;
-    if (!userName) {
+    console.table(socket.handshake.auth)
+    if (!userId) {
       return next(new Error("invalid user"));
     }
 
     // create new session
     socket.sessionId = randomId();
-    socket.userId = randomId();
+    socket.userId = userId;
     socket.userName = userName;
     next();
 });
